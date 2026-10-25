@@ -45,6 +45,20 @@ def _image_url(template: str | None) -> str | None:
     )
 
 
+def _recipe_image_url(recipe: dict[str, Any]) -> str | None:
+    """Prefer preview template; fall back to previewImageUrls (weekplan often omits template)."""
+    url = _image_url(recipe.get("previewImageUrlTemplate"))
+    if url:
+        return url
+    urls = recipe.get("previewImageUrls")
+    if isinstance(urls, dict):
+        for key in ("4x3", "16x9", "4x5"):
+            candidate = urls.get(key)
+            if isinstance(candidate, str) and candidate.startswith("https://"):
+                return candidate
+    return None
+
+
 def _prep_minutes(recipe: dict[str, Any]) -> int | None:
     """Chefkoch preparationTime/totalTime are already minutes."""
     raw = recipe.get("preparationTime")
@@ -100,13 +114,19 @@ def _rating_fields(recipe: dict[str, Any]) -> tuple[float | int | None, int | No
 def _recipe_card(recipe: dict[str, Any], *, folder_id: str | None = None) -> dict[str, Any]:
     rid = str(recipe.get("id") or "")
     rating, rating_count = _rating_fields(recipe)
+    # Private recipes use /mein-kochbuch/privatrezepte/…; public use /rezepte/….
+    default_url = None
+    if rid:
+        if rid.startswith("user-"):
+            default_url = f"https://www.chefkoch.de/mein-kochbuch/privatrezepte/{rid}"
+        else:
+            default_url = f"https://www.chefkoch.de/rezepte/{rid}.html"
     card: dict[str, Any] = {
         "recipe_id": rid,
         "title": recipe.get("title") or rid,
         "preparation_time": _prep_minutes(recipe),
-        "image_url": _image_url(recipe.get("previewImageUrlTemplate")),
-        "app_url": recipe.get("siteUrl")
-        or (f"https://www.chefkoch.de/rezepte/{rid}.html" if rid else None),
+        "image_url": _recipe_image_url(recipe),
+        "app_url": recipe.get("siteUrl") or default_url,
         "viewer_url": None,
         "source": SOURCE_CHEFKOCH,
         "rating": rating,
@@ -447,7 +467,26 @@ class ChefkochCollectionsCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         folders.sort(key=lambda f: (f.get("name") or "").lower())
         return folders, uncategorized
 
-    async def _async_fetch_week_meals(self) -> list[dict[str, Any]]:
+    async def _async_fetch_recipe_detail(self, recipe_id: str) -> dict[str, Any] | None:
+        """Load full recipe JSON (weekplan embeds often omit images)."""
+        rid = str(recipe_id or "").strip()
+        if not rid or "/" in rid or "\\" in rid or ".." in rid:
+            return None
+        try:
+            data = await self._async_get_json(
+                f"{API_BASE}/recipes/{quote(rid, safe='')}",
+                headers=self._api_headers(),
+            )
+        except UpdateFailed as err:
+            _LOGGER.debug("Chefkoch recipe detail failed for %s: %s", rid, err)
+            return None
+        if isinstance(data, dict) and isinstance(data.get("recipe"), dict):
+            return data["recipe"]
+        return data if isinstance(data, dict) else None
+
+    async def _async_fetch_week_meals(
+        self, *, image_by_id: dict[str, str | None] | None = None
+    ) -> list[dict[str, Any]]:
         await self._async_ensure_login()
         if not self._has_meal_planner:
             return []
@@ -487,8 +526,9 @@ class ChefkochCollectionsCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 continue
             recipe = entry.get("recipe") or {}
             if isinstance(recipe, str):
-                # IRI-only — no enrichment without Plus fixtures to verify.
-                continue
+                # IRI or bare id — resolve via recipe detail when Plus is active.
+                ref = recipe.rsplit("/", 1)[-1] if "/" in recipe else recipe
+                recipe = (await self._async_fetch_recipe_detail(ref)) or {}
             rid = str(recipe.get("id") or entry.get("recipeId") or "")
             day = entry.get("date") or entry.get("day")
             if isinstance(day, str) and "T" in day:
@@ -496,6 +536,22 @@ class ChefkochCollectionsCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             if not rid or not day:
                 continue
             card = _recipe_card(recipe)
+            if not card.get("image_url"):
+                if image_by_id and image_by_id.get(rid):
+                    card["image_url"] = image_by_id[rid]
+                else:
+                    detail = await self._async_fetch_recipe_detail(rid)
+                    if detail:
+                        enriched = _recipe_card(detail)
+                        if enriched.get("image_url"):
+                            card["image_url"] = enriched["image_url"]
+                        if card.get("preparation_time") is None:
+                            card["preparation_time"] = enriched.get("preparation_time")
+                        if card.get("rating") is None:
+                            card["rating"] = enriched.get("rating")
+                            card["rating_count"] = enriched.get("rating_count")
+                        if not card.get("app_url") and enriched.get("app_url"):
+                            card["app_url"] = enriched["app_url"]
             card["date"] = day
             card["entry_id"] = entry.get("id") or entry.get("@id")
             meals.append(card)
@@ -505,7 +561,17 @@ class ChefkochCollectionsCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         try:
             await self._async_ensure_login()
             folders, uncategorized = await self._async_fetch_favorites()
-            week_meals = await self._async_fetch_week_meals()
+            image_by_id: dict[str, str | None] = {}
+            for folder in folders:
+                for recipe in folder.get("recipes") or []:
+                    rid = recipe.get("recipe_id")
+                    if rid and recipe.get("image_url"):
+                        image_by_id[str(rid)] = recipe.get("image_url")
+            for recipe in uncategorized:
+                rid = recipe.get("recipe_id")
+                if rid and recipe.get("image_url"):
+                    image_by_id[str(rid)] = recipe.get("image_url")
+            week_meals = await self._async_fetch_week_meals(image_by_id=image_by_id)
         except ConfigEntryAuthFailed:
             raise
         except Exception as err:  # noqa: BLE001
