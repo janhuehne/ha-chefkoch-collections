@@ -9,6 +9,7 @@ from homeassistant.core import HomeAssistant
 from .const import DOMAIN
 from .coordinator import ChefkochCollectionsCoordinator
 from .services import async_setup_services, async_unload_services
+from .views import async_setup_views
 
 PLATFORMS: list[Platform] = [Platform.SENSOR]
 
@@ -22,6 +23,7 @@ async def async_setup_entry(
     coordinator = ChefkochCollectionsCoordinator(hass, entry)
     await coordinator.async_config_entry_first_refresh()
     entry.runtime_data = coordinator
+    async_setup_views(hass)
     await async_setup_services(hass)
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
     return True

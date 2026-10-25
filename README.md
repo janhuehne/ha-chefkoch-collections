@@ -27,7 +27,7 @@ Existing Chefkoch Home Assistant integrations focus on **recipe discovery / sear
 - Home Assistant **2024.1+**
 - A Chefkoch account
 - Optional: Chefkoch Plus with meal planner for week-plan read/write
-- Optional: [ha-foodwithlove](https://github.com/janhuehne/ha-foodwithlove) **≥ 0.5.9** for joined Lovelace cards (`chefkoch_entity`)
+- Optional: [ha-foodwithlove](https://github.com/janhuehne/ha-foodwithlove) **≥ 0.5.15** for joined Lovelace cards (auto-discovers Chefkoch; optional `chefkoch_entity`)
 
 ## Install (HACS)
 
@@ -76,6 +76,12 @@ chefkoch_entity: sensor.chefkoch_collections_favoriten
 | `chefkoch_collections.create_favorite_folder` | `name` |
 | `chefkoch_collections.delete_favorite_folder` | `folder_id` |
 | `chefkoch_collections.move_favorite` | `recipe_id`, optional `folder_id` |
+
+## API
+
+Authenticated HA endpoint used by Lovelace join cards:
+
+`GET /api/chefkoch_collections/favorites` → full `favorite_folders` + `uncategorized` + `week_meals` payload (avoids state-attribute size limits).
 
 ## Notes
 
