@@ -59,8 +59,47 @@ def _prep_minutes(recipe: dict[str, Any]) -> int | None:
     return minutes if minutes > 0 else None
 
 
+def _normalize_rating(value: Any) -> float | int | None:
+    """Round to one decimal; drop empty/zero ratings."""
+    if value in (None, "", 0, "0"):
+        return None
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return None
+    if number <= 0:
+        return None
+    rounded = round(number, 1)
+    return int(rounded) if rounded == int(rounded) else rounded
+
+
+def _rating_fields(recipe: dict[str, Any]) -> tuple[float | int | None, int | None]:
+    """Extract FWL-shaped rating + vote count from Chefkoch recipe JSON."""
+    raw = recipe.get("rating")
+    rating_raw: Any = None
+    count_raw: Any = None
+    if isinstance(raw, dict):
+        rating_raw = raw.get("rating")
+        count_raw = raw.get("numVotes")
+    else:
+        rating_raw = raw
+        count_raw = recipe.get("numVotes") or recipe.get("rating_count")
+    rating = _normalize_rating(rating_raw)
+    count: int | None = None
+    if count_raw not in (None, ""):
+        try:
+            parsed = int(float(count_raw))
+            count = parsed if parsed > 0 else None
+        except (TypeError, ValueError):
+            count = None
+    if rating is None:
+        return None, None
+    return rating, count
+
+
 def _recipe_card(recipe: dict[str, Any], *, folder_id: str | None = None) -> dict[str, Any]:
     rid = str(recipe.get("id") or "")
+    rating, rating_count = _rating_fields(recipe)
     card: dict[str, Any] = {
         "recipe_id": rid,
         "title": recipe.get("title") or rid,
@@ -70,6 +109,8 @@ def _recipe_card(recipe: dict[str, Any], *, folder_id: str | None = None) -> dic
         or (f"https://www.chefkoch.de/rezepte/{rid}.html" if rid else None),
         "viewer_url": None,
         "source": SOURCE_CHEFKOCH,
+        "rating": rating,
+        "rating_count": rating_count,
     }
     if folder_id:
         card["folder_id"] = folder_id
