@@ -1,0 +1,14 @@
+{
+  "domain": "chefkoch_collections",
+  "name": "Chefkoch Collections",
+  "codeowners": ["@janhuehne"],
+  "config_flow": true,
+  "documentation": "https://github.com/janhuehne/ha-chefkoch-collections",
+  "integration_type": "service",
+  "iot_class": "cloud_polling",
+  "issue_tracker": "https://github.com/janhuehne/ha-chefkoch-collections/issues",
+  "loggers": ["custom_components.chefkoch_collections"],
+  "requirements": [],
+  "single_config_entry": true,
+  "version": "0.1.0"
+}

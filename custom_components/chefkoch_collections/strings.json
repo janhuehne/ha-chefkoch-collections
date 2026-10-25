@@ -1,0 +1,22 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Chefkoch Collections",
+        "description": "Sign in to expose your Chefkoch cookbook collections as a sensor for joined dashboards.",
+        "data": {
+          "email": "Email or username",
+          "password": "Password"
+        }
+      }
+    },
+    "error": {
+      "invalid_auth": "Invalid email/username or password",
+      "cannot_connect": "Could not connect to Chefkoch",
+      "unknown": "Unexpected error"
+    },
+    "abort": {
+      "already_configured": "Chefkoch Collections is already configured"
+    }
+  }
+}

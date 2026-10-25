@@ -1,0 +1,64 @@
+add_weekplan_meal:
+  name: Add weekplan meal
+  description: Add a Chefkoch recipe to the meal plan for a date (requires Chefkoch Plus meal planner).
+  fields:
+    date:
+      name: Date
+      required: true
+      selector:
+        date:
+    recipe_id:
+      name: Recipe ID
+      required: true
+      selector:
+        text:
+
+remove_weekplan_meal:
+  name: Remove weekplan meal
+  description: Remove a Chefkoch recipe from the meal plan for a date (requires Chefkoch Plus meal planner).
+  fields:
+    date:
+      name: Date
+      required: true
+      selector:
+        date:
+    recipe_id:
+      name: Recipe ID
+      required: true
+      selector:
+        text:
+
+create_favorite_folder:
+  name: Create favorite folder
+  description: Create an empty Chefkoch cookbook collection.
+  fields:
+    name:
+      name: Name
+      required: true
+      selector:
+        text:
+
+delete_favorite_folder:
+  name: Delete favorite folder
+  description: Delete a Chefkoch cookbook collection (must be empty).
+  fields:
+    folder_id:
+      name: Folder ID
+      required: true
+      selector:
+        text:
+
+move_favorite:
+  name: Move favorite
+  description: Move a recipe into a Chefkoch collection (omit folder_id for Hauptsammlung).
+  fields:
+    recipe_id:
+      name: Recipe ID
+      required: true
+      selector:
+        text:
+    folder_id:
+      name: Folder ID
+      description: Target collection id, or empty for default collection.
+      selector:
+        text:
