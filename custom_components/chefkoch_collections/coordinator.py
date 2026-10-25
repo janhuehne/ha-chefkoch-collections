@@ -45,28 +45,17 @@ def _image_url(template: str | None) -> str | None:
     )
 
 
-def _is_placeholder_image(url: str | None) -> bool:
-    """Chefkoch letter tiles for recipes without a real photo."""
-    if not url:
-        return True
-    lower = url.lower()
-    return "/placeholders/" in lower or "/placeholder/" in lower
-
-
 def _recipe_image_url(recipe: dict[str, Any]) -> str | None:
-    """Real recipe photo only — skip Chefkoch dummy letter placeholders."""
-    if recipe.get("hasImage") is False:
-        return None
-    candidates: list[str | None] = [_image_url(recipe.get("previewImageUrlTemplate"))]
+    """Prefer preview template; fall back to previewImageUrls (incl. letter tiles)."""
+    url = _image_url(recipe.get("previewImageUrlTemplate"))
+    if url:
+        return url
     urls = recipe.get("previewImageUrls")
     if isinstance(urls, dict):
         for key in ("4x3", "16x9", "4x5"):
             candidate = urls.get(key)
             if isinstance(candidate, str) and candidate.startswith("https://"):
-                candidates.append(candidate)
-    for candidate in candidates:
-        if candidate and not _is_placeholder_image(candidate):
-            return candidate
+                return candidate
     return None
 
 
