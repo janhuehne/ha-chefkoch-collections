@@ -80,6 +80,7 @@ chefkoch_entity: sensor.chefkoch_collections_favoriten
 ## Notes
 
 - Collection IDs look like `user-<uid>-N` (not just `N`). Short numeric ids are rejected by the services.
+- **Hauptsammlung** (`user-<uid>-0`) is exposed as FWL-shaped `uncategorized` (“Ohne Ordner”); other collections are `favorite_folders`. Moving with no `folder_id` returns a recipe to Hauptsammlung. Hauptsammlung cannot be deleted.
 - Week-plan APIs need `ROLE_ENTITLEMENT_MEAL_PLANNER` (Chefkoch Plus). Free accounts still get favorites; FWL hides Chefkoch “add to weekplan” when `has_meal_planner` is false.
 - Cookbook lists are paginated (100 per page) so large collections are not truncated.
 

@@ -13,6 +13,7 @@ from .const import (
     ATTR_FAVORITE_FOLDERS,
     ATTR_HAS_MEAL_PLANNER,
     ATTR_SOURCE,
+    ATTR_UNCATEGORIZED,
     ATTR_WEEK_MEALS,
     DOMAIN,
     SOURCE_CHEFKOCH,
@@ -71,6 +72,7 @@ class ChefkochCollectionsFavoritesSensor(
         self._attr_extra_state_attributes = {
             ATTR_FAVORITE_COUNT: data.get("favorite_count", 0),
             ATTR_FAVORITE_FOLDERS: data.get("favorite_folders") or [],
+            ATTR_UNCATEGORIZED: data.get("uncategorized") or [],
             ATTR_WEEK_MEALS: data.get("week_meals") or [],
             ATTR_HAS_MEAL_PLANNER: data.get(ATTR_HAS_MEAL_PLANNER, False),
             ATTR_SOURCE: SOURCE_CHEFKOCH,

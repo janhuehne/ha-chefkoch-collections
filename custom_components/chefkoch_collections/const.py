@@ -14,6 +14,7 @@ DEFAULT_SCAN_INTERVAL: Final = timedelta(minutes=30)
 
 ATTR_FAVORITE_COUNT: Final = "favorite_count"
 ATTR_FAVORITE_FOLDERS: Final = "favorite_folders"
+ATTR_UNCATEGORIZED: Final = "uncategorized"
 ATTR_SOURCE: Final = "source"
 ATTR_WEEK_MEALS: Final = "week_meals"
 ATTR_HAS_MEAL_PLANNER: Final = "has_meal_planner"

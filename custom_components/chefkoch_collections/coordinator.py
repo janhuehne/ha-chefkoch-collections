@@ -45,12 +45,26 @@ def _image_url(template: str | None) -> str | None:
     )
 
 
+def _prep_minutes(recipe: dict[str, Any]) -> int | None:
+    """Chefkoch preparationTime/totalTime are already minutes."""
+    raw = recipe.get("preparationTime")
+    if raw in (None, "", 0, "0"):
+        raw = recipe.get("totalTime")
+    if raw in (None, "", 0, "0"):
+        return None
+    try:
+        minutes = int(float(raw))
+    except (TypeError, ValueError):
+        return None
+    return minutes if minutes > 0 else None
+
+
 def _recipe_card(recipe: dict[str, Any], *, folder_id: str | None = None) -> dict[str, Any]:
     rid = str(recipe.get("id") or "")
     card: dict[str, Any] = {
         "recipe_id": rid,
         "title": recipe.get("title") or rid,
-        "preparation_time": recipe.get("preparationTime") or recipe.get("totalTime"),
+        "preparation_time": _prep_minutes(recipe),
         "image_url": _image_url(recipe.get("previewImageUrlTemplate")),
         "app_url": recipe.get("siteUrl")
         or (f"https://www.chefkoch.de/rezepte/{rid}.html" if rid else None),
@@ -264,10 +278,20 @@ class ChefkochCollectionsCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 return str(coll["id"])
         raise UpdateFailed("Could not create Chefkoch collection")
 
+    def _default_collection_id(self) -> str:
+        if not self._user_id:
+            raise UpdateFailed("Missing user id")
+        return f"user-{self._user_id}-0"
+
+    def _is_default_collection(self, folder_id: str) -> bool:
+        return folder_id == self._default_collection_id()
+
     async def async_delete_folder(self, folder_id: str) -> None:
-        """Delete an empty collection."""
+        """Delete an empty collection (never Hauptsammlung)."""
         await self._async_ensure_login()
         folder_id = self.validate_collection_id(folder_id)
+        if self._is_default_collection(folder_id):
+            raise ValueError("Hauptsammlung cannot be deleted")
         for folder in (self.data or {}).get("favorite_folders") or []:
             if folder.get("id") == folder_id and int(folder.get("count") or 0) > 0:
                 raise ValueError("Folder is not empty")
@@ -277,12 +301,12 @@ class ChefkochCollectionsCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     async def async_move_favorite(
         self, recipe_id: str, *, to_folder_id: str | None
     ) -> None:
-        """Move recipe into a collection (or default when None)."""
+        """Move recipe into a collection (or Hauptsammlung / uncategorized when None)."""
         await self._async_ensure_login()
-        if to_folder_id:
-            target = self.validate_collection_id(to_folder_id)
+        if to_folder_id in (None, "", "__uncategorized__"):
+            target = self._default_collection_id()
         else:
-            target = f"user-{self._user_id}-0"
+            target = self.validate_collection_id(str(to_folder_id))
         await self._async_request_json(
             "PATCH",
             f"{self._cookbook_base()}/saved-recipes",
@@ -328,15 +352,23 @@ class ChefkochCollectionsCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             url = f"{WEEKPLAN_ENTRIES_URL}/{quote(entry_ref, safe='')}"
         await self._async_request_json("DELETE", url)
 
-    async def _async_fetch_folders(self) -> list[dict[str, Any]]:
+    async def _async_fetch_favorites(self) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+        """Return (favorite_folders, uncategorized).
+
+        Chefkoch Hauptsammlung (``user-{uid}-0``) is mapped to FWL-shaped
+        ``uncategorized`` so joined Lovelace cards share one “Ohne Ordner”
+        section. Other collections stay in ``favorite_folders``.
+        """
         await self._async_ensure_login()
         headers = self._api_headers()
+        default_id = self._default_collection_id()
         collections = await self._async_paginate(
             f"{self._cookbook_base()}/collections",
             headers=headers,
             extra_params={"order": 0, "orderBy": 2},
         )
         folders: list[dict[str, Any]] = []
+        uncategorized: list[dict[str, Any]] = []
         for raw in collections:
             folder_id = str(raw.get("id") or "")
             if not folder_id:
@@ -346,13 +378,22 @@ class ChefkochCollectionsCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 headers=headers,
                 extra_params={"order": 0, "orderBy": 2},
             )
+            is_default = folder_id == default_id
             recipes: list[dict[str, Any]] = []
             for row in recipe_rows:
                 recipe = row.get("recipe") or {}
                 if not recipe.get("id"):
                     continue
-                recipes.append(_recipe_card(recipe, folder_id=folder_id))
+                # Uncategorized cards omit folder_id (FWL / Cookidoo parity).
+                recipes.append(
+                    _recipe_card(
+                        recipe, folder_id=None if is_default else folder_id
+                    )
+                )
             recipes.sort(key=lambda r: (r.get("title") or "").lower())
+            if is_default:
+                uncategorized = recipes
+                continue
             folders.append(
                 {
                     "id": folder_id,
@@ -363,7 +404,7 @@ class ChefkochCollectionsCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 }
             )
         folders.sort(key=lambda f: (f.get("name") or "").lower())
-        return folders
+        return folders, uncategorized
 
     async def _async_fetch_week_meals(self) -> list[dict[str, Any]]:
         await self._async_ensure_login()
@@ -422,18 +463,18 @@ class ChefkochCollectionsCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     async def _async_update_data(self) -> dict[str, Any]:
         try:
             await self._async_ensure_login()
-            folders = await self._async_fetch_folders()
+            folders, uncategorized = await self._async_fetch_favorites()
             week_meals = await self._async_fetch_week_meals()
         except ConfigEntryAuthFailed:
             raise
         except Exception as err:  # noqa: BLE001
             raise UpdateFailed(str(err)) from err
 
-        total = sum(int(f.get("count") or 0) for f in folders)
+        total = sum(int(f.get("count") or 0) for f in folders) + len(uncategorized)
         return {
             "favorite_count": total,
             "favorite_folders": folders,
-            "uncategorized": [],
+            "uncategorized": uncategorized,
             "week_meals": week_meals,
             ATTR_HAS_MEAL_PLANNER: self._has_meal_planner,
             "username": self._username,

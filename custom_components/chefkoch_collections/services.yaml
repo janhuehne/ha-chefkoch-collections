@@ -40,7 +40,7 @@ create_favorite_folder:
 
 delete_favorite_folder:
   name: Delete favorite folder
-  description: Delete a Chefkoch cookbook collection (must be empty).
+  description: Delete an empty Chefkoch cookbook collection (Hauptsammlung cannot be deleted).
   fields:
     folder_id:
       name: Folder ID
@@ -50,7 +50,7 @@ delete_favorite_folder:
 
 move_favorite:
   name: Move favorite
-  description: Move a recipe into a Chefkoch collection (omit folder_id for Hauptsammlung).
+  description: Move a recipe into a Chefkoch collection (omit folder_id for Hauptsammlung / uncategorized).
   fields:
     recipe_id:
       name: Recipe ID
@@ -59,6 +59,6 @@ move_favorite:
         text:
     folder_id:
       name: Folder ID
-      description: Target collection id, or empty for default collection.
+      description: Target collection id, or empty / omitted for Hauptsammlung (FWL uncategorized).
       selector:
         text:
