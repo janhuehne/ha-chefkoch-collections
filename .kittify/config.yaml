@@ -1,0 +1,12 @@
+project:
+  uuid: 81f6a7b0-abd5-41de-bc97-4e3bd7dd261d
+  slug: ha-chefkoch-collections
+  node_id: e82f11f4966f
+  build_id: efe71f83-0c7d-52cf-92f1-9b1462bfff29
+vcs:
+  type: git
+agents:
+  available:
+  - cursor
+  auto_commit: true
+  lint_on_edit: false

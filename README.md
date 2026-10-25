@@ -44,7 +44,7 @@ Copy `custom_components/chefkoch_collections` into your HA `config/custom_compon
 
 ## Setup
 
-Enter your Chefkoch email/username + password. The integration stores them in the config entry and polls every 30 minutes.
+Enter your Chefkoch email/username + password. The integration stores them in the Home Assistant config entry (and therefore in HA backups) and polls every 30 minutes. If login fails after a password change, use the integration’s **reconfigure** / repair flow — you do not need to delete the entry.
 
 ## Joined Lovelace (with food with love)
 
@@ -79,8 +79,9 @@ chefkoch_entity: sensor.chefkoch_collections_favoriten
 
 ## Notes
 
-- Collection IDs look like `user-<uid>-N` (not just `N`).
-- Week-plan APIs return **403** without `ROLE_ENTITLEMENT_MEAL_PLANNER` (Chefkoch Plus). Favorites still work on free accounts.
+- Collection IDs look like `user-<uid>-N` (not just `N`). Short numeric ids are rejected by the services.
+- Week-plan APIs need `ROLE_ENTITLEMENT_MEAL_PLANNER` (Chefkoch Plus). Free accounts still get favorites; FWL hides Chefkoch “add to weekplan” when `has_meal_planner` is false.
+- Cookbook lists are paginated (100 per page) so large collections are not truncated.
 
 ## License
 

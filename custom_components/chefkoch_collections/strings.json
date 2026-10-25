@@ -3,7 +3,23 @@
     "step": {
       "user": {
         "title": "Chefkoch Collections",
-        "description": "Sign in to expose your Chefkoch cookbook collections as a sensor for joined dashboards.",
+        "description": "Sign in to expose your Chefkoch cookbook collections as a sensor for joined dashboards. The password is stored in the Home Assistant config entry (and backups).",
+        "data": {
+          "email": "Email or username",
+          "password": "Password"
+        }
+      },
+      "reauth_confirm": {
+        "title": "Re-authenticate Chefkoch Collections",
+        "description": "Credentials for {email} are no longer valid. Enter the current password (and email if it changed).",
+        "data": {
+          "email": "Email or username",
+          "password": "Password"
+        }
+      },
+      "reconfigure": {
+        "title": "Update Chefkoch Collections credentials",
+        "description": "Update the stored Chefkoch email/username and password.",
         "data": {
           "email": "Email or username",
           "password": "Password"
@@ -16,7 +32,10 @@
       "unknown": "Unexpected error"
     },
     "abort": {
-      "already_configured": "Chefkoch Collections is already configured"
+      "already_configured": "Chefkoch Collections is already configured",
+      "reauth_successful": "Re-authentication successful",
+      "reconfigure_successful": "Credentials updated",
+      "wrong_account": "Credentials belong to a different Chefkoch account"
     }
   }
 }

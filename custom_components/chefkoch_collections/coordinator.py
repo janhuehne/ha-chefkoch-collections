@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
+import json as _json
 import logging
+import re
 from datetime import date, timedelta
 from typing import Any
+from urllib.parse import quote
 
 import aiohttp
 from homeassistant.config_entries import ConfigEntry
@@ -28,6 +31,10 @@ from .const import (
 )
 
 _LOGGER = logging.getLogger(__name__)
+
+_PAGE_SIZE = 100
+_MAX_PAGES = 100
+_COLLECTION_ID_RE = re.compile(r"^user-[a-f0-9]+-\d+$", re.IGNORECASE)
 
 
 def _image_url(template: str | None) -> str | None:
@@ -97,6 +104,20 @@ class ChefkochCollectionsCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             raise UpdateFailed("Missing user id")
         return f"{API_BASE}/cookbooks/user-{self._user_id}"
 
+    def validate_collection_id(self, folder_id: str) -> str:
+        """Ensure folder id is a safe full collection id for this user."""
+        fid = str(folder_id or "").strip()
+        if not fid or "/" in fid or "\\" in fid or ".." in fid or "?" in fid:
+            raise ValueError("Invalid Chefkoch folder id")
+        if not self._user_id:
+            raise UpdateFailed("Missing user id")
+        prefix = f"user-{self._user_id}-"
+        if not fid.startswith(prefix) or not _COLLECTION_ID_RE.match(fid):
+            raise ValueError(
+                f"Chefkoch folder id must look like {prefix}N (full collection id)"
+            )
+        return fid
+
     async def async_login(self) -> None:
         """Authenticate and cache api token + user id."""
         email = self.entry.data[CONF_EMAIL]
@@ -112,11 +133,14 @@ class ChefkochCollectionsCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         ) as resp:
             if resp.status >= 400:
                 text = await resp.text()
-                raise ConfigEntryAuthFailed(f"Chefkoch login failed ({resp.status}): {text[:200]}")
-            # body mainly has redirectUrl; session cookies matter
+                raise ConfigEntryAuthFailed(
+                    f"Chefkoch login failed ({resp.status}): {text[:200]}"
+                )
             _ = await resp.json(content_type=None)
 
-        async with self._session.get(ME_URL, headers={"Accept": "application/json"}) as resp:
+        async with self._session.get(
+            ME_URL, headers={"Accept": "application/json"}
+        ) as resp:
             if resp.status >= 400:
                 raise ConfigEntryAuthFailed(f"Chefkoch /me failed ({resp.status})")
             me = await resp.json(content_type=None)
@@ -142,14 +166,19 @@ class ChefkochCollectionsCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         await self.async_login()
 
     async def _async_get_json(
-        self, url: str, *, headers: dict[str, str] | None = None, params: dict | None = None
+        self,
+        url: str,
+        *,
+        headers: dict[str, str] | None = None,
+        params: dict | None = None,
     ) -> Any:
         async with self._session.get(url, headers=headers, params=params) as resp:
             if resp.status in (401, 403) and headers and "X-Chefkoch-Api-Token" in headers:
-                # retry once after re-login
                 await self.async_login()
                 headers = self._api_headers()
-                async with self._session.get(url, headers=headers, params=params) as resp2:
+                async with self._session.get(
+                    url, headers=headers, params=params
+                ) as resp2:
                     if resp2.status >= 400:
                         text = await resp2.text()
                         raise UpdateFailed(f"GET {url} -> {resp2.status}: {text[:200]}")
@@ -158,6 +187,14 @@ class ChefkochCollectionsCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 text = await resp.text()
                 raise UpdateFailed(f"GET {url} -> {resp.status}: {text[:200]}")
             return await resp.json(content_type=None)
+
+    def _parse_response_body(self, text: str) -> Any:
+        if not text:
+            return {}
+        try:
+            return _json.loads(text)
+        except Exception:  # noqa: BLE001
+            return {"raw": text}
 
     async def _async_request_json(
         self, method: str, url: str, *, json_body: dict | None = None
@@ -168,16 +205,53 @@ class ChefkochCollectionsCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             method, url, headers=headers, json=json_body
         ) as resp:
             text = await resp.text()
+            if resp.status in (401, 403):
+                await self.async_login()
+                headers = self._api_headers()
+                async with self._session.request(
+                    method, url, headers=headers, json=json_body
+                ) as resp2:
+                    text2 = await resp2.text()
+                    if resp2.status >= 400:
+                        raise HomeAssistantError(
+                            f"{method} {url} -> {resp2.status}: {text2[:300]}"
+                        )
+                    return self._parse_response_body(text2)
             if resp.status >= 400:
                 raise HomeAssistantError(f"{method} {url} -> {resp.status}: {text[:300]}")
-            if not text:
-                return {}
-            try:
-                import json as _json
+            return self._parse_response_body(text)
 
-                return _json.loads(text)
-            except Exception:  # noqa: BLE001
-                return {"raw": text}
+    async def _async_paginate(
+        self, url: str, *, headers: dict[str, str], extra_params: dict[str, Any]
+    ) -> list[Any]:
+        """Fetch all pages of a Chefkoch list endpoint."""
+        results: list[Any] = []
+        offset = 0
+        for _ in range(_MAX_PAGES):
+            params = {
+                **extra_params,
+                "offset": offset,
+                "limit": _PAGE_SIZE,
+            }
+            data = await self._async_get_json(url, headers=headers, params=params)
+            batch = data.get("results") if isinstance(data, dict) else None
+            if not isinstance(batch, list):
+                batch = []
+            results.extend(batch)
+            if len(batch) < _PAGE_SIZE:
+                break
+            total = None
+            for key in ("count", "total", "numResults", "resultCount"):
+                if isinstance(data, dict) and data.get(key) is not None:
+                    try:
+                        total = int(data[key])
+                    except (TypeError, ValueError):
+                        total = None
+                    break
+            if total is not None and len(results) >= total:
+                break
+            offset += _PAGE_SIZE
+        return results
 
     async def async_create_folder(self, name: str) -> str:
         """Create a cookbook collection; return its id."""
@@ -193,6 +267,7 @@ class ChefkochCollectionsCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     async def async_delete_folder(self, folder_id: str) -> None:
         """Delete an empty collection."""
         await self._async_ensure_login()
+        folder_id = self.validate_collection_id(folder_id)
         for folder in (self.data or {}).get("favorite_folders") or []:
             if folder.get("id") == folder_id and int(folder.get("count") or 0) > 0:
                 raise ValueError("Folder is not empty")
@@ -204,7 +279,10 @@ class ChefkochCollectionsCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     ) -> None:
         """Move recipe into a collection (or default when None)."""
         await self._async_ensure_login()
-        target = to_folder_id or f"user-{self._user_id}-0"
+        if to_folder_id:
+            target = self.validate_collection_id(to_folder_id)
+        else:
+            target = f"user-{self._user_id}-0"
         await self._async_request_json(
             "PATCH",
             f"{self._cookbook_base()}/saved-recipes",
@@ -219,7 +297,6 @@ class ChefkochCollectionsCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 "Chefkoch meal planner requires a Plus entitlement "
                 "(ROLE_ENTITLEMENT_MEAL_PLANNER)"
             )
-        # API Platform-style create; verified shape may vary with Plus accounts.
         body = {
             "date": day.isoformat(),
             "recipe": f"/wochenplaner/api/recipes/{recipe_id}",
@@ -242,28 +319,35 @@ class ChefkochCollectionsCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 break
         if not entry_id:
             raise UpdateFailed("Weekplan entry not found")
-        await self._async_request_json("DELETE", f"{WEEKPLAN_ENTRIES_URL}/{entry_id}")
+        entry_ref = str(entry_id)
+        if entry_ref.startswith("/"):
+            url = f"https://www.chefkoch.de{entry_ref}"
+        elif entry_ref.startswith("http"):
+            url = entry_ref
+        else:
+            url = f"{WEEKPLAN_ENTRIES_URL}/{quote(entry_ref, safe='')}"
+        await self._async_request_json("DELETE", url)
 
     async def _async_fetch_folders(self) -> list[dict[str, Any]]:
         await self._async_ensure_login()
         headers = self._api_headers()
-        data = await self._async_get_json(
+        collections = await self._async_paginate(
             f"{self._cookbook_base()}/collections",
             headers=headers,
-            params={"offset": 0, "limit": 100, "order": 0, "orderBy": 2},
+            extra_params={"order": 0, "orderBy": 2},
         )
         folders: list[dict[str, Any]] = []
-        for raw in data.get("results") or []:
+        for raw in collections:
             folder_id = str(raw.get("id") or "")
             if not folder_id:
                 continue
-            recipes_data = await self._async_get_json(
+            recipe_rows = await self._async_paginate(
                 f"{self._cookbook_base()}/collections/{folder_id}/recipes",
                 headers=headers,
-                params={"offset": 0, "limit": 100, "order": 0, "orderBy": 2},
+                extra_params={"order": 0, "orderBy": 2},
             )
             recipes: list[dict[str, Any]] = []
-            for row in recipes_data.get("results") or []:
+            for row in recipe_rows:
                 recipe = row.get("recipe") or {}
                 if not recipe.get("id"):
                     continue
@@ -321,7 +405,7 @@ class ChefkochCollectionsCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 continue
             recipe = entry.get("recipe") or {}
             if isinstance(recipe, str):
-                # IRI only — skip enrichment for now
+                # IRI-only — no enrichment without Plus fixtures to verify.
                 continue
             rid = str(recipe.get("id") or entry.get("recipeId") or "")
             day = entry.get("date") or entry.get("day")

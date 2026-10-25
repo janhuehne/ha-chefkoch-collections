@@ -75,6 +75,8 @@ async def async_setup_services(hass: HomeAssistant) -> None:
         folder_id = str(call.data["folder_id"])
         try:
             await coordinator.async_delete_folder(folder_id)
+        except ValueError as err:
+            raise HomeAssistantError(str(err)) from err
         except Exception as err:  # noqa: BLE001
             raise HomeAssistantError(f"Could not delete Chefkoch folder: {err}") from err
         await coordinator.async_request_refresh()
@@ -87,6 +89,8 @@ async def async_setup_services(hass: HomeAssistant) -> None:
             await coordinator.async_move_favorite(
                 recipe_id, to_folder_id=folder_id or None
             )
+        except ValueError as err:
+            raise HomeAssistantError(str(err)) from err
         except Exception as err:  # noqa: BLE001
             raise HomeAssistantError(f"Could not move Chefkoch favorite: {err}") from err
         await coordinator.async_request_refresh()
